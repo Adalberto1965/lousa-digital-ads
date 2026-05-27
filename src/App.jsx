@@ -209,7 +209,7 @@ export default function App() {
               <CalendarDays className="h-7 w-7 text-emerald-300" />
             </div>
             <div>
-              <h1 className="text-2xl font-bold md:text-4xl">Lousa Digital ADS</h1>
+              <h1 className="text-2xl font-bold md:text-4xl">Programação</h1>
               <p className="text-slate-300">Agenda mensal operacional, frota, tripulação, alertas e avisos.</p>
             </div>
           </div>
