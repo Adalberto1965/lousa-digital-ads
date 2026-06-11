@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { motion } from "framer-motion";
-import { DndContext, useDraggable, useDroppable } from "@dnd-kit/core";
+import { DndContext, useDraggable, useDroppable, pointerWithin } from "@dnd-kit/core";
 import {
   AlertTriangle,
   CalendarDays,
@@ -23,26 +23,11 @@ import { hasSupabaseConfig, supabase } from "./supabaseClient";
 
 const weekDays = ["Segunda", "Terça", "Quarta", "Quinta", "Sexta", "Sábado", "Domingo"];
 
-const seedVehicles = [
-  { id: crypto.randomUUID(), plate: "ADS-4821", type: "Truck", rotation_day: "Segunda", status: "Disponível" },
-  { id: crypto.randomUUID(), plate: "ADS-7734", type: "Bitruck", rotation_day: "Quarta", status: "Em rota" },
-  { id: crypto.randomUUID(), plate: "ADS-9921", type: "VUC", rotation_day: "Sexta", status: "Manutenção" },
-];
+const seedVehicles = [];
 
-const seedCrew = [
-  { id: crypto.randomUUID(), name: "Juan", role: "Motorista", status: "Disponível" },
-  { id: crypto.randomUUID(), name: "Antonio", role: "Motorista", status: "Disponível" },
-  { id: crypto.randomUUID(), name: "Lucas", role: "Ajudante", status: "Disponível" },
-  { id: crypto.randomUUID(), name: "Eudimauro", role: "Ajudante", status: "Em rota" },
-];
+const seedCrew = [];
 
-const seedEvents = [
-  { id: crypto.randomUUID(), operation_date: "2026-05-06", content: "Fischer • Juan / Eudimauro" },
-  { id: crypto.randomUUID(), operation_date: "2026-05-06", content: "Trampo • Antonio / Lucas" },
-  { id: crypto.randomUUID(), operation_date: "2026-05-13", content: "Limpeza / manutenção do galpão" },
-  { id: crypto.randomUUID(), operation_date: "2026-05-21", content: "Baixada Santista 06:00" },
-  { id: crypto.randomUUID(), operation_date: "2026-05-22", content: "Ecoville • Antonio / Lucas" },
-];
+const seedEvents = [];
 
 function pad(n) {
   return String(n).padStart(2, "0");
@@ -142,6 +127,24 @@ function parseDragId(value) {
   if (parts[0] === "assigned") return { origin: "assigned", type: parts[1], date: parts[2], id: parts[3] };
   return null;
 }
+function shortWeekDay(day) {
+  const map = {
+    Segunda: "SEG",
+    "Segunda-feira": "SEG",
+    Terça: "TER",
+    "Terça-feira": "TER",
+    Quarta: "QUA",
+    "Quarta-feira": "QUA",
+    Quinta: "QUI",
+    "Quinta-feira": "QUI",
+    Sexta: "SEX",
+    "Sexta-feira": "SEX",
+    Sábado: "SÁB",
+    Domingo: "DOM",
+  };
+
+  return map[day] || day;
+}
 
 export default function App() {
   const today = new Date();
@@ -151,7 +154,12 @@ export default function App() {
   const [vehicles, setVehicles] = useState(() => loadLocal("ads_vehicles", seedVehicles));
   const [crew, setCrew] = useState(() => loadLocal("ads_crew", seedCrew));
   const [dayAssignments, setDayAssignments] = useState(() => loadLocal("ads_day_assignments", {}));
-  const [dayStatuses, setDayStatuses] = useState(() => loadLocal("ads_day_statuses", {}));
+  const [entryAssignments, setEntryAssignments] = useState(() =>
+    loadLocal("ads_entry_assignments", {})
+  );
+  const [entryStatuses, setEntryStatuses] = useState(() =>
+    loadLocal("ads_entry_statuses", {})
+  ); const [dayStatuses, setDayStatuses] = useState(() => loadLocal("ads_day_statuses", {}));
   const [generalAlerts, setGeneralAlerts] = useState(() =>
     loadLocal("ads_general_alerts", "Atenção: confirmar checklists antes da saída dos veículos.")
   );
@@ -160,11 +168,54 @@ export default function App() {
   );
   const [syncStatus, setSyncStatus] = useState(hasSupabaseConfig ? "Conectando..." : "Modo local");
   const [viewMode, setViewMode] = useState("operacao");
+  const [calendarView, setCalendarView] = useState("mes");
+  const [weekOffset, setWeekOffset] = useState(0);
   const [clockDate, setClockDate] = useState(todayIso());
 
   const cells = useMemo(() => getCalendarCells(year, monthIndex), [year, monthIndex]);
-  const monthLabel = new Date(year, monthIndex, 1).toLocaleDateString("pt-BR", { month: "long", year: "numeric" });
+const weekAnchorDay = useMemo(() => {
+  const current = new Date(`${clockDate}T00:00:00`);
 
+  if (current.getFullYear() === year && current.getMonth() === monthIndex) {
+  const shifted = new Date(current);
+shifted.setDate(current.getDate() + weekOffset * 7);
+return shifted.getDate();
+  }
+
+  return 1;
+}, [clockDate, year, monthIndex, weekOffset]);
+
+const visibleCells = useMemo(() => {
+  if (calendarView !== "semana") return cells;
+
+  const anchor = new Date(year, monthIndex, weekAnchorDay);
+  const mondayOffset = (anchor.getDay() + 6) % 7;
+  const weekStart = new Date(year, monthIndex, weekAnchorDay - mondayOffset);
+
+  return Array.from({ length: 7 }, (_, index) => {
+    const date = new Date(weekStart);
+    date.setDate(weekStart.getDate() + index);
+
+    return date.getMonth() === monthIndex ? date.getDate() : null;
+  });
+}, [calendarView, cells, year, monthIndex, weekAnchorDay]);
+const weekLabel = useMemo(() => {
+  if (calendarView !== "semana") return null;
+
+  const weekDaysOnly = visibleCells.filter(Boolean);
+
+  if (!weekDaysOnly.length) return null;
+
+  const firstDay = weekDaysOnly[0];
+  const lastDay = weekDaysOnly[weekDaysOnly.length - 1];
+
+  return `Semana de ${String(firstDay).padStart(2, "0")} a ${String(lastDay).padStart(2, "0")}`;
+}, [calendarView, visibleCells]);
+  const monthLabel = new Date(year, monthIndex).toLocaleDateString("pt-BR", {
+    month: "long",
+    year: "numeric",
+  });
+  const cleanMonthLabel = monthLabel.replace(" de ", " ");
   const vehiclesById = useMemo(() => Object.fromEntries(vehicles.map((vehicle) => [vehicle.id, vehicle])), [vehicles]);
   const crewById = useMemo(() => Object.fromEntries(crew.map((member) => [member.id, member])), [crew]);
 
@@ -178,13 +229,15 @@ export default function App() {
     saveLocal("ads_vehicles", vehicles);
     saveLocal("ads_crew", crew);
     saveLocal("ads_day_assignments", dayAssignments);
+    saveLocal("ads_entry_assignments", entryAssignments);
+    saveLocal("ads_entry_statuses", entryStatuses);
     saveLocal("ads_day_statuses", dayStatuses);
     saveLocal("ads_general_alerts", generalAlerts);
     saveLocal("ads_corporate_notices", corporateNotices);
-  }, [events, vehicles, crew, dayAssignments, dayStatuses, generalAlerts, corporateNotices]);
+  }, [events, vehicles, crew, dayAssignments, entryAssignments, dayStatuses, generalAlerts, corporateNotices]);
 
   useEffect(() => {
-    if (!hasSupabaseConfig) return;
+ if (!hasSupabaseConfig) return;
 
     async function loadOnlineData() {
       setSyncStatus("Sincronizando...");
@@ -208,68 +261,160 @@ export default function App() {
         const nextAssignments = assignmentsRes.data.reduce((acc, row) => {
           const date = row.operation_date;
           acc[date] = acc[date] || emptyAssignmentDay();
-          if (row.resource_type === "vehicle" && !acc[date].vehicles.includes(row.resource_id)) {
-            acc[date].vehicles.push(row.resource_id);
+
+          if (row.item_type === "vehicle" && !acc[date].vehicles.includes(row.item_id)) {
+            acc[date].vehicles.push(row.item_id);
           }
-          if (row.resource_type === "crew" && !acc[date].crew.includes(row.resource_id)) {
-            acc[date].crew.push(row.resource_id);
+
+          if (row.item_type === "crew" && !acc[date].crew.includes(row.item_id)) {
+            acc[date].crew.push(row.item_id);
           }
+
           return acc;
         }, {});
+
         setDayAssignments(nextAssignments);
       }
       if (!statusesRes.error && statusesRes.data?.length) {
-        const nextStatuses = Object.fromEntries(statusesRes.data.map((row) => [row.operation_date, row.status]));
+        const nextStatuses = Object.fromEntries(
+          statusesRes.data.map((row) => [
+            row.operation_date,
+            row.green ? "done" : row.red ? "not_done" : undefined
+          ])
+        );
+
         setDayStatuses(nextStatuses);
       }
+
       setSyncStatus("Online");
     }
 
     loadOnlineData();
   }, []);
-
   async function persist(table, rows) {
     if (!hasSupabaseConfig) return;
     setSyncStatus("Salvando...");
-    const { error } = await supabase.from(table).upsert(rows);
+
+    const rowsToPersist =
+      table === "calendar_entries"
+        ? rows.map(({ id, operation_date, content, route }) => ({
+          id,
+          operation_date,
+          content,
+          route: route || "",
+        }))
+        : rows;
+
+    const { error } = await supabase.from(table).upsert(rowsToPersist, {
+      onConflict: "id",
+    });
+
+    console.log("persist", table, rowsToPersist, error);
+    console.log("persistMessages error:", error);
+    setSyncStatus(error ? "Erro ao salvar" : "Online");
+  }
+
+  async function persistDayStatus(operationDate, status) {
+    if (!hasSupabaseConfig) return;
+    setSyncStatus("Salvando...");
+
+    if (!status) {
+      const { error } = await supabase
+        .from("day_statuses")
+        .delete()
+        .eq("operation_date", operationDate);
+
+console.log("persistDayStatus error:", error);
+      setSyncStatus(error ? "Erro ao salvar" : "Online");
+      return;
+    }
+
+    const { error } = await supabase.from("day_statuses").upsert(
+      {
+        operation_date: operationDate,
+        green: status === "done",
+        red: status === "not_done",
+      },
+      { onConflict: "operation_date" }
+    );
+console.log("persistAssignments error:", error);
     setSyncStatus(error ? "Erro ao salvar" : "Online");
   }
 
   async function persistMessages(nextAlerts, nextNotices) {
     if (!hasSupabaseConfig) return;
     setSyncStatus("Salvando...");
-    const { error } = await supabase.from("board_messages").upsert({
-      board_id: "principal",
-      general_alerts: nextAlerts,
-      corporate_notices: nextNotices,
-      updated_at: new Date().toISOString(),
-    });
+
+    const { error } = await supabase.from("board_messages").upsert(
+      {
+        board_id: "principal",
+        general_alerts: nextAlerts,
+        corporate_notices: nextNotices,
+      },
+      { onConflict: "board_id" }
+    );
+console.log("persistWhatever error:", error);
     setSyncStatus(error ? "Erro ao salvar" : "Online");
   }
+async function persistAll() {
 
+
+  saveLocal("ads_vehicles", vehicles);
+  saveLocal("ads_crew", crew);
+  saveLocal("ads_events", events);
+  saveLocal("ads_day_assignments", dayAssignments);
+  saveLocal("ads_entry_assignments", entryAssignments);
+  saveLocal("ads_entry_statuses", entryStatuses);
+  saveLocal("ads_day_statuses", dayStatuses);
+  saveLocal("ads_general_alerts", generalAlerts);
+  saveLocal("ads_corporate_notices", corporateNotices);
+
+  
+  await persistMessages(generalAlerts, corporateNotices);
+  
+  setSyncStatus("Online");
+}
   async function persistAssignmentsForDate(operationDate, assignmentsForDate) {
     if (!hasSupabaseConfig) return;
     setSyncStatus("Salvando...");
+
     const rows = [
-      ...assignmentsForDate.vehicles.map((id) => buildAssignmentRow(operationDate, "vehicle", id)),
-      ...assignmentsForDate.crew.map((id) => buildAssignmentRow(operationDate, "crew", id)),
+      ...assignmentsForDate.vehicles.map((id) => {
+        const vehicle = vehiclesById[id];
+        return {
+          operation_date: operationDate,
+          item_type: "vehicle",
+          item_id: id,
+          item_label: vehicle?.plate || "Veículo",
+          item_extra: vehicle?.type || "",
+          status: vehicle?.status || "",
+        };
+      }),
+      ...assignmentsForDate.crew.map((id) => {
+        const member = crewById[id];
+        return {
+          operation_date: operationDate,
+          item_type: "crew",
+          item_id: id,
+          item_label: member?.name || "Tripulante",
+          item_extra: member?.role || "",
+          status: member?.status || "",
+        };
+      }),
     ];
-    const deleteRes = await supabase.from("day_assignments").delete().eq("operation_date", operationDate);
-    const insertRes = rows.length ? await supabase.from("day_assignments").insert(rows) : { error: null };
+
+    const deleteRes = await supabase
+      .from("day_assignments")
+      .delete()
+      .eq("operation_date", operationDate);
+
+    const insertRes = rows.length
+      ? await supabase.from("day_assignments").insert(rows)
+      : { error: null };
+console.log("error:", error);
+console.log("insertRes.error:", insertRes.error);
     setSyncStatus(deleteRes.error || insertRes.error ? "Erro ao salvar" : "Online");
   }
-
-  async function persistDayStatus(operationDate, status) {
-    if (!hasSupabaseConfig) return;
-    setSyncStatus("Salvando...");
-    const { error } = await supabase.from("day_statuses").upsert({
-      operation_date: operationDate,
-      status,
-      updated_at: new Date().toISOString(),
-    });
-    setSyncStatus(error ? "Erro ao salvar" : "Online");
-  }
-
   const eventsByDate = useMemo(() => {
     return events.reduce((acc, item) => {
       acc[item.operation_date] = acc[item.operation_date] || [];
@@ -277,7 +422,6 @@ export default function App() {
       return acc;
     }, {});
   }, [events]);
-
   const changeMonth = (delta) => {
     const d = new Date(year, monthIndex + delta, 1);
     setYear(d.getFullYear());
@@ -285,14 +429,23 @@ export default function App() {
   };
 
   const addEvent = async (operation_date) => {
-    const next = { id: crypto.randomUUID(), operation_date, content: "" };
+    const next = { id: crypto.randomUUID(), operation_date, content: "", route: "", };
     const updated = [...events, next];
     setEvents(updated);
     await persist("calendar_entries", updated);
   };
 
-  const updateEvent = async (id, content) => {
-    const updated = events.map((item) => (item.id === id ? { ...item, content } : item));
+  const updateEvent = async (id, content, route) => {
+    const updated = events.map((item) =>
+      item.id === id
+        ? {
+          ...item,
+          content,
+          route: route ?? item.route ?? "",
+        }
+        : item
+    );
+
     setEvents(updated);
     await persist("calendar_entries", updated);
   };
@@ -373,19 +526,80 @@ export default function App() {
       await persistAssignmentsForDate(date, nextAssignments[date]);
     }
   }
+  function setEntryStatus(entryId, status) {
+    const next = {
+      ...entryStatuses,
+      [entryId]: status,
+    };
 
+    setEntryStatuses(next);
+    saveLocal("ads_entry_statuses", next);
+  }
   async function handleDragEnd(event) {
     const activeData = parseDragId(event.active?.id);
     const overId = String(event.over?.id || "");
-    if (!activeData || !overId.startsWith("day:")) return;
 
-    const targetDate = overId.replace("day:", "");
-    await assignResourceToDate({
-      resourceType: activeData.type,
-      resourceId: activeData.id,
-      fromDate: activeData.origin === "assigned" ? activeData.date : null,
-      targetDate,
-    });
+    if (!activeData) return;
+    if (!overId.startsWith("entry:")) return;
+
+    const entryId = overId.replace("entry:", "");
+    const entry = events.find((item) => item.id === entryId);
+    if (!entry) return;
+
+    const targetDate = entry.operation_date;
+
+    const entriesSameDay = events.filter(
+      (item) => item.operation_date === targetDate
+    );
+
+    const nextEntryAssignments = { ...entryAssignments };
+
+    const current = nextEntryAssignments[entryId] || {
+      vehicles: [],
+      crew: [],
+    };
+
+    if (activeData.type === "vehicle") {
+      const alreadyUsed = entriesSameDay.some((item) => {
+        if (item.id === entryId) return false;
+        return nextEntryAssignments[item.id]?.vehicles?.includes(activeData.id);
+      });
+
+      if (alreadyUsed) {
+        alert("Este veículo já está em outro Roteiro/Cliente neste dia.");
+        return;
+      }
+
+      current.vehicles = [activeData.id];
+    }
+
+    if (activeData.type === "crew") {
+      const member = crewById[activeData.id];
+      const memberStatus = String(member?.status || "").toUpperCase();
+
+      if (memberStatus === "FÉRIAS" || memberStatus === "FERIAS" || memberStatus === "FOLGA") {
+        alert("Este tripulante está em FÉRIAS/FOLGA e não pode ser alocado.");
+        return;
+      }
+
+      const alreadyUsed = entriesSameDay.some((item) => {
+        if (item.id === entryId) return false;
+        return nextEntryAssignments[item.id]?.crew?.includes(activeData.id);
+      });
+
+      if (alreadyUsed) {
+        alert("Este tripulante já está em outro Roteiro/Cliente neste dia.");
+        return;
+      }
+
+      if (!current.crew.includes(activeData.id)) {
+        current.crew = [...current.crew, activeData.id];
+      }
+    }
+    nextEntryAssignments[entryId] = current;
+
+    setEntryAssignments(nextEntryAssignments);
+    saveLocal("ads_entry_assignments", nextEntryAssignments);
   }
 
   async function removeAssignment(operationDate, resourceType, resourceId) {
@@ -402,23 +616,30 @@ export default function App() {
   }
 
   async function setStatusForDate(operationDate, status) {
-    if (operationDate > clockDate) return;
-    const nextStatuses = { ...dayStatuses, [operationDate]: status };
+    if (operationDate >= clockDate) return;
+
+    const current = dayStatuses[operationDate];
+    const nextStatus = current === status ? undefined : status;
+
+    const nextStatuses = { ...dayStatuses };
+    if (nextStatus) {
+      nextStatuses[operationDate] = nextStatus;
+    } else {
+      delete nextStatuses[operationDate];
+    }
+
     setDayStatuses(nextStatuses);
-    await persistDayStatus(operationDate, status);
+    await persistDayStatus(operationDate, nextStatus);
   }
 
   const isVideoWall = viewMode === "videowall";
 
   return (
-    <DndContext onDragEnd={handleDragEnd}>
+    <DndContext collisionDetection={pointerWithin} onDragEnd={handleDragEnd}>
       <div className="min-h-screen bg-white p-3 text-slate-950 md:p-4">
         <div className="mx-auto max-w-[1900px] space-y-4">
           <header className="flex flex-col gap-3 rounded-3xl bg-white p-4 shadow-xl ring-1 ring-slate-200 md:flex-row md:items-center md:justify-between">
             <div className="flex items-center gap-3">
-              <div className="rounded-2xl bg-emerald-600 p-3 shadow-sm">
-                <CalendarDays className="h-7 w-7 text-white" />
-              </div>
               <div>
                 <h1 className="text-2xl font-bold md:text-4xl">Programação</h1>
                 <p className="text-slate-600">Agenda mensal operacional, frota, tripulação, alertas e avisos.</p>
@@ -427,30 +648,53 @@ export default function App() {
 
             <div className="flex flex-wrap items-center gap-2">
               <StatusBadge syncStatus={syncStatus} />
-              <button onClick={() => setViewMode(isVideoWall ? "operacao" : "videowall")} className="rounded-2xl bg-slate-100 px-4 py-3 font-semibold text-slate-900 ring-1 ring-slate-200 hover:bg-slate-200">
-                {isVideoWall ? "Modo operação" : "Modo videowall"}
-              </button>
-              <button onClick={() => changeMonth(-1)} className="rounded-2xl bg-slate-100 p-3 text-slate-900 ring-1 ring-slate-200 hover:bg-slate-200">
-                <ChevronLeft />
-              </button>
-              <div className="min-w-56 text-center text-xl font-bold capitalize">{monthLabel}</div>
-              <button onClick={() => changeMonth(1)} className="rounded-2xl bg-slate-100 p-3 text-slate-900 ring-1 ring-slate-200 hover:bg-slate-200">
-                <ChevronRight />
-              </button>
-              <button onClick={() => persistMessages(generalAlerts, corporateNotices)} className="flex items-center gap-2 rounded-2xl bg-emerald-600 px-4 py-3 font-semibold text-white hover:bg-emerald-500">
+<button
+  onClick={() => setViewMode(isVideoWall ? "operacao" : "videowall")}
+  className="rounded-2xl bg-slate-100 px-4 py-3 font-semibold text-slate-900 ring-1 ring-slate-200 hover:bg-slate-200"
+>
+  {isVideoWall ? "Modo operação" : "Modo videowall"}
+</button>
+
+<button
+  onClick={() => setCalendarView(calendarView === "mes" ? "semana" : "mes")}
+  className="rounded-2xl bg-slate-100 px-4 py-2 text-sm font-medium"
+>
+  {calendarView === "mes" ? "Semana" : "Mês"}
+</button>
+
+<button
+onClick={() => calendarView === "semana" ? setWeekOffset(weekOffset - 1) : changeMonth(-1)}
+  className="rounded-2xl bg-slate-100 p-3 text-slate-900 ring-1 ring-slate-200 hover:bg-slate-200"
+>
+  <ChevronLeft />
+</button>
+<div className="min-w-56 text-center">
+  <div className="text-xl font-bold capitalize">{cleanMonthLabel}</div>
+  {weekLabel && <div className="text-xs font-semibold text-emerald-700">{weekLabel}</div>}
+</div>
+
+<button
+  onClick={() => calendarView === "semana" ? setWeekOffset(weekOffset + 1) : changeMonth(1)}
+  className="rounded-2xl bg-slate-100 p-3 text-slate-900 ring-1 ring-slate-200 hover:bg-slate-200"
+>
+  <ChevronRight />
+</button>
+              <button onClick={persistAll} className="flex items-center gap-2 rounded-2xl bg-emerald-600 px-4 py-3 font-semibold text-white hover:bg-emerald-500">
                 <Save className="h-4 w-4" /> Salvar
               </button>
-            </div>
-          </header>
+              </div>
+              </header>
 
-          <main className={`grid gap-4 ${isVideoWall ? "lg:grid-cols-[300px_1fr]" : "lg:grid-cols-[380px_1fr]"}`}>
-            <aside className="space-y-4">
+<main className={`grid gap-4 ${isVideoWall ? "lg:grid-cols-[210px_1fr]" : "lg:grid-cols-[260px_1fr]"}`}>
+                <aside className="space-y-4">
               <Panel title="Veículos" icon={Truck} action={addVehicle} compact={isVideoWall}>
-                <div className="grid grid-cols-[1fr_1fr_1fr_1fr] gap-2 text-xs font-semibold text-slate-600">
-                  <span>Placa</span><span>Tipo</span><span>Rodízio</span><span>Status</span>
-                </div>
                 {vehicles.map((vehicle) => (
-                  <ResourceRow key={vehicle.id} type="vehicle" id={vehicle.id} label={`${vehicle.plate || "Veículo sem placa"}${getRotationDayFromPlate(vehicle.plate) ? ` • Rodízio ${getRotationDayFromPlate(vehicle.plate)}` : ""}`}>
+                  <ResourceRow
+                    key={vehicle.id}
+                    type="vehicle"
+                    id={vehicle.id}
+                    label={`${vehicle.plate || "Veículo sem placa"}${getRotationDayFromPlate(vehicle.plate) ? " • " + shortWeekDay(getRotationDayFromPlate(vehicle.plate)) : ""}`}
+                  >
                     <Input value={vehicle.plate} onChange={(v) => updateVehicle(vehicle.id, "plate", v)} placeholder="Placa" />
                     <Input value={vehicle.type} onChange={(v) => updateVehicle(vehicle.id, "type", v)} placeholder="Tipo" />
                     <Input value={vehicle.rotation_day} onChange={(v) => updateVehicle(vehicle.id, "rotation_day", v)} placeholder="Dia" />
@@ -459,10 +703,7 @@ export default function App() {
                 ))}
               </Panel>
 
-              <Panel title="Tripulantes disponíveis" icon={Users} action={addCrew} compact={isVideoWall}>
-                <div className="grid grid-cols-[1.2fr_1fr_1fr] gap-2 text-xs font-semibold text-slate-600">
-                  <span>Nome</span><span>Função</span><span>Status</span>
-                </div>
+              <Panel title="Tripulantes" icon={Users} action={addCrew} compact={isVideoWall}>
                 {crew.map((member) => (
                   <ResourceRow key={member.id} type="crew" id={member.id} label={member.name || "Tripulante sem nome"} grid="grid-cols-[1.2fr_1fr_1fr]">
                     <Input value={member.name} onChange={(v) => updateCrew(member.id, "name", v)} placeholder="Nome" />
@@ -482,7 +723,7 @@ export default function App() {
                 ))}
               </div>
               <div className="grid grid-cols-7 gap-2">
-                {cells.map((day, index) => {
+                {visibleCells.map((day, index) => {
                   if (!day) return <div key={`empty-${index}`} className={`${isVideoWall ? "min-h-28" : "min-h-40"} rounded-2xl bg-slate-50 ring-1 ring-slate-100`} />;
                   const key = isoDate(year, monthIndex, day);
                   return (
@@ -491,8 +732,12 @@ export default function App() {
                       operationDate={key}
                       day={day}
                       todayDate={clockDate}
-                      status={dayStatuses[key]}
+                      status={undefined}
                       assigned={getDayAssignment(dayAssignments, key)}
+                      entryAssignments={entryAssignments}
+                      entryStatuses={entryStatuses}
+                      onSetEntryStatus={setEntryStatus}
+                      onRemoveEntryAssignment={() => { }}
                       vehiclesById={vehiclesById}
                       crewById={crewById}
                       items={eventsByDate[key] || []}
@@ -530,8 +775,8 @@ export default function App() {
         </div>
       </div>
     </DndContext>
-  );
-}
+    );
+    }
 
 function StatusBadge({ syncStatus }) {
   const online = syncStatus === "Online";
@@ -547,44 +792,83 @@ function StatusBadge({ syncStatus }) {
 function Panel({ title, icon: Icon, action, children, compact }) {
   return (
     <section className="rounded-3xl bg-white p-4 shadow-xl ring-1 ring-slate-200">
-      <div className="mb-3 flex items-center justify-between">
-        <div className="flex items-center gap-2">          <Icon className="h-5 w-5 text-emerald-700" />
-          <h2 className="text-lg font-bold">{title}</h2>
-        </div>
-        {!compact && (
-          <button onClick={action} className="rounded-xl bg-emerald-500 p-2 text-slate-950 hover:bg-emerald-400">
-            <Plus className="h-4 w-4" />
-          </button>
-        )}
+
+      <div className="flex items-center gap-2">          <Icon className="h-5 w-5 text-emerald-700" />
+        <h2 className="text-lg font-bold">{title}</h2>
       </div>
+      {!compact && (
+        <button onClick={action} className="rounded-xl bg-emerald-500 p-2 text-slate-950 hover:bg-emerald-400">
+          <Plus className="h-4 w-4" />
+        </button>
+      )}
       <div className="space-y-2">{children}</div>
     </section>
   );
 }
 
-function ResourceRow({ type, id, label, grid = "grid-cols-[1fr_1fr_1fr_1fr]", children }) {
-  const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({ id: `source:${type}:${id}` });
-  const style = transform ? { transform: `translate3d(${transform.x}px, ${transform.y}px, 0)` } : undefined;
+function ResourceRow({ type, id, label, children }) {
+  const [open, setOpen] = useState(false);
+
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    transform,
+    isDragging,
+  } = useDraggable({
+    id: `source:${type}:${id}`,
+  });
+
+  const style = transform
+    ? {
+      transform: `translate3d(${transform.x}px, ${transform.y}px, 0)`,
+    }
+    : undefined;
 
   return (
-    <div ref={setNodeRef} style={style} className={`rounded-2xl border border-slate-200 bg-white p-2 ${isDragging ? "z-50 opacity-70 ring-2 ring-emerald-400" : ""}`}>
-      <div className="mb-2 flex items-center justify-between text-xs text-slate-600">
-        <span className="truncate font-semibold">{label}</span>
-        <button type="button" {...listeners} {...attributes} className="cursor-grab rounded-lg bg-slate-100 p-1 text-emerald-700 ring-1 ring-slate-200 active:cursor-grabbing" title="Arrastar para um dia">
-          <GripVertical className="h-4 w-4" />
+    <div
+      ref={setNodeRef}
+      style={style}
+      className={`group rounded-xl border border-slate-200 bg-white px-2 py-1 ${isDragging ? "w-24 opacity-70" : ""
+        }`}
+    >
+      <div className="flex items-center justify-between gap-2">
+        <button
+          type="button"
+          onClick={() => setOpen(!open)}
+          className="min-w-0 flex-1 truncate text-left text-xs font-semibold text-slate-900"
+        >
+          {label}
+        </button>
+
+        <button
+          type="button"
+          {...listeners}
+          {...attributes}
+          className="shrink-0 cursor-grab rounded-md bg-slate-100 p-0.5"
+        >
+          <GripVertical className="h-3 w-3" />
         </button>
       </div>
-      <div className={`grid ${grid} gap-2`}>{children}</div>
+
+      {open && !isDragging && (
+        <div className="mt-2 space-y-1">
+          {children}
+        </div>
+      )}
     </div>
   );
 }
-
 function CalendarCell({
   operationDate,
   day,
   todayDate,
   status,
   assigned,
+  entryAssignments,
+  entryStatuses,
+  onSetEntryStatus,
+  onRemoveEntryAssignment,
   vehiclesById,
   crewById,
   items,
@@ -609,8 +893,6 @@ function CalendarCell({
       <div className="mb-2 flex items-center justify-between">
         <div className="flex items-center gap-1">
           <span className="flex h-8 w-8 items-center justify-center rounded-full bg-slate-100 text-sm font-bold text-emerald-700 ring-1 ring-slate-200">{day}</span>
-          {status === "done" && <CheckCircle2 className="h-5 w-5 text-emerald-400" />}
-          {status === "not_done" && <XCircle className="h-5 w-5 text-red-400" />}
           {isToday && <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-bold text-amber-700">Hoje</span>}
         </div>
         {!compact && (
@@ -620,76 +902,90 @@ function CalendarCell({
         )}
       </div>
 
-      <div className="mb-2 space-y-1">
-        {!!assigned.vehicles.length && <SectionLabel>Veículos</SectionLabel>}
-        {assigned.vehicles.map((id) => {
-          const vehicle = vehiclesById[id];
-          const rotationAlert = hasRotationAlert(vehicle, operationDate);
+      <div className="space-y-2">
+        {items.map((item) => {
+          const itemAssignments =
+            entryAssignments?.[item.id] || {
+              vehicles: [],
+              crew: [],
+            };
+          const entryStatus = entryStatuses[item.id];
+
           return (
-            <AssignedCard
-              key={`vehicle-${id}`}
-              type="vehicle"
-              operationDate={operationDate}
-              id={id}
-              label={vehicle?.plate || "Veículo"}
-              description={rotationAlert ? `${vehicle?.type || ""} • Rodízio SP` : vehicle?.type}
-              statusColor={rotationAlert ? "yellow" : "green"}
-              title={rotationAlert ? `Alerta: rodízio SP na ${getRotationDayFromPlate(vehicle?.plate)} para placa final ${getPlateLastDigit(vehicle?.plate)}` : "Disponibilidade plena"}
-              onRemove={onRemoveAssignment}
-            />
+            <div key={item.id} className="group relative">
+              <EntryDropZone itemId={item.id}>
+                <input
+                  value={item.route || ""}
+                  onChange={(e) => onUpdate(item.id, item.content, e.target.value)}
+                  className="mb-1 w-full rounded-lg border border-emerald-200 bg-white px-2 py-1 text-[10px] text-slate-900 outline-none focus:border-emerald-500"
+                  placeholder="Roteiro / Cliente"
+                />
+
+                {itemAssignments.vehicles.map((vehicleId) => (
+                  <div
+                    key={`vehicle-${vehicleId}`}
+                    className="mb-0.5 rounded bg-amber-50 px-2 py-0.5 text-[9px] font-bold text-slate-900"
+                  >
+                    {vehiclesById[vehicleId]?.plate}
+                  </div>
+                ))}
+
+                {itemAssignments.crew.map((crewId) => (
+                  <div
+                    key={`crew-${crewId}`}
+                    className="mb-1 rounded bg-emerald-50 px-2 py-1 text-[10px] font-bold text-slate-900"
+                  >
+
+                    {crewById[crewId]?.name}
+                  </div>
+                ))}
+                <div className="mt-1 flex items-center justify-end gap-1 border-t border-slate-200 pt-1">
+                  <button
+                    type="button"
+                    onClick={() => onSetEntryStatus(item.id, "done")}
+                    className={`h-4 w-4 rounded-full ${entryStatus === "done"
+                        ? "bg-emerald-600 ring-2 ring-emerald-300"
+                        : "bg-emerald-400"
+                      }`}
+                    title="Concluído"
+                  />
+
+                  <button
+                    type="button"
+                    onClick={() => onSetEntryStatus(item.id, "not_done")}
+                    className={`h-4 w-4 rounded-full ${entryStatus === "not_done"
+                        ? "bg-red-600 ring-2 ring-red-300"
+                        : "bg-red-400"
+                      }`}
+                    title="Não concluído"
+                  />
+                </div>
+              </EntryDropZone>
+              {!compact && (
+                <button onClick={() => onRemove(item.id)} className="absolute right-1 top-1 opacity-0 group-hover:opacity-100 rounded-md bg-red-500 px-1 text-xs text-white transition">
+                  x
+                </button>
+              )}
+            </div>
           );
         })}
-        {!!assigned.crew.length && <SectionLabel>Tripulação</SectionLabel>}
-        {assigned.crew.map((id) => (
-          <AssignedCard key={`crew-${id}`} type="crew" operationDate={operationDate} id={id} label={crewById[id]?.name || "Tripulante"} description={crewById[id]?.role} statusColor="green" onRemove={onRemoveAssignment} />
-        ))}
       </div>
-
-      <div className="space-y-2">
-        {items.map((item) => (
-          <div key={item.id} className="group relative">
-            <textarea
-              value={item.content}
-              onChange={(e) => onUpdate(item.id, e.target.value)}
-              className={`${compact ? "min-h-10 text-[11px]" : "min-h-14 text-xs"} w-full resize-none rounded-xl border border-slate-200 bg-white p-2 leading-snug text-slate-950 outline-none focus:border-emerald-500`}
-              placeholder="Inserir escala, roteiro, observação..."
-            />
-            {!compact && (
-              <button onClick={() => onRemove(item.id)} className="absolute right-1 top-1 hidden rounded-md bg-red-500 px-1.5 text-xs text-white group-hover:block">
-                x
-              </button>
-            )}
-          </div>
-        ))}
-      </div>
-
-      {!compact && (
-        <div className="mt-2 flex items-center justify-between border-t border-slate-200 pt-2">
-          <span className="text-[10px] font-semibold uppercase text-slate-500">Finalização</span>
-          <div className="flex items-center gap-1">
-            <button
-              onClick={() => onSetStatus(operationDate, "done")}
-              disabled={!canFinalize}
-              className={`rounded-full p-1 ${status === "done" ? "bg-emerald-500 text-slate-950" : "bg-slate-100 text-emerald-700 ring-1 ring-slate-200"} disabled:cursor-not-allowed disabled:opacity-30`}
-              title="Realizado"
-            >
-              <Circle className="h-4 w-4 fill-current" />
-            </button>
-            <button
-              onClick={() => onSetStatus(operationDate, "not_done")}
-              disabled={!canFinalize}
-              className={`rounded-full p-1 ${status === "not_done" ? "bg-red-500 text-white" : "bg-slate-100 text-red-700 ring-1 ring-slate-200"} disabled:cursor-not-allowed disabled:opacity-30`}
-              title="Não realizado"
-            >
-              <Circle className="h-4 w-4 fill-current" />
-            </button>
-          </div>
-        </div>
-      )}
     </motion.div>
   );
 }
+function EntryDropZone({ itemId, children }) {
+  const { isOver, setNodeRef } = useDroppable({ id: `entry:${itemId}` });
 
+  return (
+    <div
+      ref={setNodeRef}
+      className={`mt-1 rounded-xl border border-dashed p-1 text-[10px] ${isOver ? "border-emerald-600 bg-emerald-100" : "border-emerald-300 bg-emerald-50"
+        }`}
+    >
+      {children}
+    </div>
+  );
+}
 function SectionLabel({ children }) {
   return <div className="pt-1 text-[10px] font-bold uppercase tracking-wide text-slate-500">{children}</div>;
 }
@@ -707,7 +1003,6 @@ function AssignedCard({ type, operationDate, id, label, description, statusColor
         <GripVertical className="h-3 w-3 shrink-0 text-emerald-700" />
         <span className={`h-2.5 w-2.5 shrink-0 rounded-full ${dotClasses}`} />
         <span className="truncate font-bold text-slate-950">{label}</span>
-        {description && <span className="hidden truncate text-slate-600 xl:inline">• {description}</span>}
       </button>
       <button onClick={() => onRemove(operationDate, type, id)} className="ml-1 rounded-md p-0.5 text-slate-500 hover:bg-red-500 hover:text-white" title="Remover da escala">
         <X className="h-3 w-3" />
