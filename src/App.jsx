@@ -278,17 +278,17 @@ const weekLabel = useMemo(() => {
       if (!vehiclesRes.error && vehiclesRes.data?.length) setVehicles(vehiclesRes.data);
       if (!crewRes.error && crewRes.data?.length) setCrew(crewRes.data);
       if (!boardRes.error && boardRes.data) {
-        loadedBoardAssignments = boardRes.data.day_assignments || {};
+        const loadedBoardAssignments = boardRes.data.day_assignments || {};
+
         setGeneralAlerts(boardRes.data.general_alerts || "");
         setCorporateNotices(boardRes.data.corporate_notices || "");
         setDayAssignments(boardRes.data.day_assignments || {});
         setEntryAssignments(boardRes.data.entry_assignments || {});
         setEntryStatuses(boardRes.data.entry_statuses || {});
         setDayStatuses(boardRes.data.day_statuses || {});
-      }
-      if (
-        Object.keys(loadedBoardAssignments).length === 0 &&
-        !assignmentsRes.error &&
+} else if (
+  Object.keys(loadedBoardAssignments).length === 0 &&
+          !assignmentsRes.error &&
         assignmentsRes.data?.length
       ) {
         const nextAssignments = assignmentsRes.data.reduce((acc, row) => {
