@@ -23,9 +23,20 @@ import { hasSupabaseConfig, supabase } from "./supabaseClient";
 
 const weekDays = ["Segunda", "Terça", "Quarta", "Quinta", "Sexta", "Sábado", "Domingo"];
 
-const seedVehicles = [];
+const seedVehicles = [
+  { id: crypto.randomUUID(), plate: "DEU9704", type: "TER", rotation_day: "Terça", status: "Disponível" },
+  { id: crypto.randomUUID(), plate: "EPA9F52", type: "SEG", rotation_day: "Segunda", status: "Disponível" },
+  { id: crypto.randomUUID(), plate: "FVF2H36", type: "QUA", rotation_day: "Quarta", status: "Disponível" },
+  { id: crypto.randomUUID(), plate: "EJO3B97", type: "QUI", rotation_day: "Quinta", status: "Disponível" },
+];
 
-const seedCrew = [];
+const seedCrew = [
+  { id: crypto.randomUUID(), name: "Antonio Honório", role: "Motorista", status: "Disponível" },
+  { id: crypto.randomUUID(), name: "Eudimauro Damascena", role: "Ajudante", status: "Disponível" },
+  { id: crypto.randomUUID(), name: "Juan Santos", role: "Ajudante", status: "Disponível" },
+  { id: crypto.randomUUID(), name: "Lucas Santos", role: "Ajudante", status: "Disponível" },
+  { id: crypto.randomUUID(), name: "Gustavo Lourenço", role: "Ajudante", status: "Disponível" },
+];
 
 const seedEvents = [];
 
@@ -56,7 +67,19 @@ function getCalendarCells(year, monthIndex) {
 function loadLocal(key, fallback) {
   try {
     const saved = localStorage.getItem(key);
-    return saved ? JSON.parse(saved) : fallback;
+    if (!saved) return fallback;
+
+    const parsed = JSON.parse(saved);
+
+    if (
+      (key === "ads_vehicles" || key === "ads_crew") &&
+      Array.isArray(parsed) &&
+      parsed.length === 0
+    ) {
+      return fallback;
+    }
+
+    return parsed;
   } catch {
     return fallback;
   }
