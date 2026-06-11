@@ -264,6 +264,7 @@ const weekLabel = useMemo(() => {
 
     async function loadOnlineData() {
       setSyncStatus("Sincronizando...");
+      let loadedBoardAssignments = {};
       const [eventsRes, vehiclesRes, crewRes, boardRes, assignmentsRes, statusesRes] = await Promise.all([
         supabase.from("calendar_entries").select("*").order("created_at"),
         supabase.from("vehicles").select("*").order("plate"),
@@ -277,10 +278,19 @@ const weekLabel = useMemo(() => {
       if (!vehiclesRes.error && vehiclesRes.data?.length) setVehicles(vehiclesRes.data);
       if (!crewRes.error && crewRes.data?.length) setCrew(crewRes.data);
       if (!boardRes.error && boardRes.data) {
+        loadedBoardAssignments = boardRes.data.day_assignments || {};
         setGeneralAlerts(boardRes.data.general_alerts || "");
         setCorporateNotices(boardRes.data.corporate_notices || "");
+        setDayAssignments(boardRes.data.day_assignments || {});
+        setEntryAssignments(boardRes.data.entry_assignments || {});
+        setEntryStatuses(boardRes.data.entry_statuses || {});
+        setDayStatuses(boardRes.data.day_statuses || {});
       }
-      if (!assignmentsRes.error && assignmentsRes.data?.length) {
+      if (
+        Object.keys(loadedBoardAssignments).length === 0 &&
+        !assignmentsRes.error &&
+        assignmentsRes.data?.length
+      ) {
         const nextAssignments = assignmentsRes.data.reduce((acc, row) => {
           const date = row.operation_date;
           acc[date] = acc[date] || emptyAssignmentDay();
