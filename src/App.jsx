@@ -373,6 +373,10 @@ console.log("persistAssignments error:", error);
         board_id: "principal",
         general_alerts: nextAlerts,
         corporate_notices: nextNotices,
+        day_assignments: dayAssignments,
+        entry_assignments: entryAssignments,
+        entry_statuses: entryStatuses,
+        day_statuses: dayStatuses,
       },
       { onConflict: "board_id" }
     );
