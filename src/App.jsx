@@ -394,7 +394,14 @@ async function persistAll() {
 
   
   await persistMessages(generalAlerts, corporateNotices);
-  
+  if (hasSupabaseConfig) {
+  await supabase.from("vehicles").delete().neq("id", "00000000-0000-0000-0000-000000000000");
+  await supabase.from("crew_members").delete().neq("id", "00000000-0000-0000-0000-000000000000");
+
+  if (vehicles.length) await supabase.from("vehicles").insert(vehicles);
+  if (crew.length) await supabase.from("crew_members").insert(crew);
+}
+ 
   setSyncStatus("Online");
 }
   async function persistAssignmentsForDate(operationDate, assignmentsForDate) {
