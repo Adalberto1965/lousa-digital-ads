@@ -278,36 +278,36 @@ const weekLabel = useMemo(() => {
       if (!vehiclesRes.error && vehiclesRes.data?.length) setVehicles(vehiclesRes.data);
       if (!crewRes.error && crewRes.data?.length) setCrew(crewRes.data);
       if (!boardRes.error && boardRes.data) {
-        const loadedBoardAssignments = boardRes.data.day_assignments || {};
+      loadedBoardAssignments = boardRes.data.day_assignments || {};
 
         setGeneralAlerts(boardRes.data.general_alerts || "");
         setCorporateNotices(boardRes.data.corporate_notices || "");
-        setDayAssignments(boardRes.data.day_assignments || {});
         setEntryAssignments(boardRes.data.entry_assignments || {});
         setEntryStatuses(boardRes.data.entry_statuses || {});
         setDayStatuses(boardRes.data.day_statuses || {});
-} else if (
+}
+if (
   Object.keys(loadedBoardAssignments).length === 0 &&
-          !assignmentsRes.error &&
-        assignmentsRes.data?.length
-      ) {
-        const nextAssignments = assignmentsRes.data.reduce((acc, row) => {
-          const date = row.operation_date;
-          acc[date] = acc[date] || emptyAssignmentDay();
+  !assignmentsRes.error &&
+  assignmentsRes.data?.length
+) {
+  const nextAssignments = assignmentsRes.data.reduce((acc, row) => {
+    const date = row.operation_date;
+    acc[date] = acc[date] || emptyAssignmentDay();
 
-          if (row.item_type === "vehicle" && !acc[date].vehicles.includes(row.item_id)) {
-            acc[date].vehicles.push(row.item_id);
-          }
+    if (row.item_type === "vehicle" && !acc[date].vehicles.includes(row.item_id)) {
+      acc[date].vehicles.push(row.item_id);
+    }
 
-          if (row.item_type === "crew" && !acc[date].crew.includes(row.item_id)) {
-            acc[date].crew.push(row.item_id);
-          }
+    if (row.item_type === "crew" && !acc[date].crew.includes(row.item_id)) {
+      acc[date].crew.push(row.item_id);
+    }
 
-          return acc;
-        }, {});
+    return acc;
+  }, {});
 
-        setDayAssignments(nextAssignments);
-      }
+  setDayAssignments(nextAssignments);
+}
       if (!statusesRes.error && statusesRes.data?.length) {
         const nextStatuses = Object.fromEntries(
           statusesRes.data.map((row) => [
@@ -323,7 +323,7 @@ const weekLabel = useMemo(() => {
     }
 
     loadOnlineData();
-  }, []);
+}, []);
   async function persist(table, rows) {
     if (!hasSupabaseConfig) return;
     setSyncStatus("Salvando...");
